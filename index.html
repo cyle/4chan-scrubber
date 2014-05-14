@@ -1,0 +1,206 @@
+<!doctype html>
+<html>
+<head>
+<title>4chan /b/ Scrubber, v3.0</title>
+<style type="text/css">
+* {
+  margin: 0;
+  padding: 0;
+}
+body {
+  background-color: black;
+}
+div#header {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+}
+div#header h1 {
+  margin: 3px;
+  font-size: 10px;
+  font-weight: normal;
+  font-family: Helvetica, Arial, sans-serif;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: default;
+}
+div#lol {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+<div id="header"><h1>4chan /b/ scrubber by cyle gage, v3.0</h1></div>
+<div id="lol"><canvas height="100%" width="100%" id="c"></canvas></div>
+<script type="text/javascript">
+
+// basic config
+var debug = false;
+var fetch_rate = 30 * 1000; // fetch new images every X milliseconds
+var image_rate = 1000; // display one every X milliseconds
+var chan_url_base = 'http://i.4cdn.org/b/';
+
+// a bunch of variables to be used and re-used
+var image_display_counter = 0;
+var images_collected_this_time = 0;
+var chan_json;
+var images = [];
+var img = new Image();
+var random_x, random_y;
+var post_image;
+var fetch_interval;
+var display_interval;
+
+// set up the canvas
+var canvas = document.getElementById("c");
+var context = canvas.getContext("2d");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// fired on window resizes
+function resize() {
+  if (debug) { console.log('resized window, resizing canvas'); }
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+
+// fired on page load
+function init() {
+  fetch_interval = setInterval(get4chan, fetch_rate);
+  display_interval = setInterval(display_image, image_rate);
+  get4chan();
+}
+
+// fired every fetch_rate interval
+function get4chan() {
+  if (debug) { console.log('fetching latest 4chan/b/ JSON'); }
+  doAjax('4chan.php', 'GET', true, parse4chan);
+}
+
+// called whenever the fetch comes back
+function parse4chan() {
+  if (this.readyState == 4) {
+    if (debug) { console.log('parsing images'); }
+		//console.log(this.responseText);
+    try {
+      chan_json = JSON.parse(this.responseText);
+    } catch (e) {
+      console.error("4chan JSON parsing error: ", e);
+      return;
+    }
+    //console.log(chan_json);
+    images_collected_this_time = 0;
+    for (var t = 0; t < chan_json.threads.length; t++) {
+      var thread = chan_json.threads[t];
+      for (var p = 0; p < thread.posts.length; p++) {
+        var post = thread.posts[p];
+        if (post.tim != undefined && post.ext != undefined) {
+          if (post.ext != '.jpg' && post.ext != '.png' && post.ext != '.gif') {
+            if (debug) { console.log('unsupported extension: ' + post.ext); }
+          } else {
+            post_image = chan_url_base+post.tim+post.ext;
+            if (already_exists(post_image) == false) {
+              images.push(post_image);
+              images_collected_this_time++;
+            }
+          }
+        }
+      }
+    }
+    if (debug) { console.log(images_collected_this_time + ' images collected this trip'); }
+	} else {
+    if (debug) { console.log('error getting latest 4chan JSON'); }
+  }
+}
+
+// checks to see if an image has already been displayed
+function already_exists(src) {
+  for (var i = 0; i < images.length; i++) {
+    if (images[i] == src) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// display an image, based on how far along the counter we've gone
+// gets fired every image_rate
+function display_image() {
+  if (images.length < image_display_counter + 1) {
+    if (debug) { console.log('run out of images to display, waiting for next fetch'); }
+    return;
+  }
+  if (debug) { console.log('displaying next image: ' + images[image_display_counter]); }
+  img.src = images[image_display_counter];
+  img.onload = function() {
+    if (img.width == 235 && img.height == 35) {
+      // 4chan leech image, ignore
+      if (debug) { console.log('4chan leech image, ignoring...'); }
+      return;
+    }
+    if (img.width > window.innerWidth || img.height > window.innerHeight) {
+      random_x = random_int(-1 * img.width/2, window.innerWidth - img.width/2);
+      random_y = random_int(-1 * img.height/2, window.innerHeight - img.height/2);
+    } else {
+      random_x = random_int(0, window.innerWidth - img.width);
+      random_y = random_int(0, window.innerHeight - img.height);
+    }
+    if (debug) { console.log('displaying image at x: ' + random_x + ', y: ' + random_y); }
+    context.drawImage(img, random_x, random_y);
+  };
+  image_display_counter++;
+}
+
+// imagine that, get a random integer
+function random_int(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// based on https://gist.github.com/dharmavir/936328
+function getHttpRequestObject() {
+  var xmlHttpRequst = false;
+  if (window.XMLHttpRequest) { // Mozilla/Safari/Non-IE
+    xmlHttpRequst = new XMLHttpRequest();
+  } else if (window.ActiveXObject) { // IE
+    xmlHttpRequst = new ActiveXObject("Microsoft.XMLHTTP");
+  }
+  return xmlHttpRequst;
+}
+ 
+// based on https://gist.github.com/dharmavir/936328
+function doAjax(url, method, async, responseHandler, data) {
+  url = url || "";
+  method = method || "GET";
+  async = async || true;
+  data = data || null;
+  if (url == "" || url == undefined) {
+    return false;
+  }
+  var xmlHttpRequst = getHttpRequestObject();
+  if (xmlHttpRequst != false) {
+    if (method == "GET") {
+      url = url + "?" + data;
+      data = null;
+    }
+    xmlHttpRequst.open(method, url, async);
+    if (method == "POST") {
+      xmlHttpRequst.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    }
+    xmlHttpRequst.onreadystatechange = responseHandler;
+    xmlHttpRequst.send(data);
+  } else {
+    // no AJAX support
+    return false;
+  }
+}
+
+// on load, inittttt
+window.addEventListener("load", init, false);
+
+// on window resize, resiiiiiize
+window.addEventListener('resize', resize, false);
+
+</script>
+</body>
+</html>
